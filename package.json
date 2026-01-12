@@ -1,0 +1,26 @@
+{
+  "name": "boundary-water-simulator",
+  "version": "1.0.0",
+  "description": "A realistic 3D water simulator with interactive walls and obstacles",
+  "main": "index.html",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "keywords": [
+    "water",
+    "simulation",
+    "physics",
+    "3d",
+    "webgl"
+  ],
+  "author": "",
+  "license": "Apache-2.0",
+  "dependencies": {
+    "three": "^0.160.0"
+  },
+  "devDependencies": {
+    "vite": "^5.0.0"
+  }
+}
