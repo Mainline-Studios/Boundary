@@ -239,16 +239,86 @@ export class WaterSimulation {
     }
     
     public addWater(): void {
-        if (this.particleSystem) {
-            // Temporarily increase emit rate to add more water
-            const oldRate = this.particleSystem.emitRate;
-            this.particleSystem.emitRate = 800;
+        if (!this.particleSystem) return;
+        
+        // Create multiple burst emitters at random positions
+        const burstCount = 5; // Number of water bursts
+        const particlesPerBurst = 100; // Particles per burst
+        
+        for (let i = 0; i < burstCount; i++) {
+            // Random position for water burst
+            const x = (Math.random() - 0.5) * 15;
+            const z = (Math.random() - 0.5) * 15;
+            const y = 8 + Math.random() * 4; // Between 8 and 12
+            
+            // Create a temporary emitter at this position
+            const burstEmitter = MeshBuilder.CreateBox('burstEmitter', { size: 0.1 }, this.scene);
+            burstEmitter.isVisible = false;
+            burstEmitter.position = new Vector3(x, y, z);
+            
+            // Create a temporary particle system for this burst
+            const burstParticleSystem = new ParticleSystem('waterBurst', particlesPerBurst, this.scene);
+            
+            // Use the same texture
+            if (this.particleSystem.particleTexture) {
+                burstParticleSystem.particleTexture = this.particleSystem.particleTexture;
+            }
+            
+            burstParticleSystem.emitter = burstEmitter;
+            burstParticleSystem.minEmitBox = new Vector3(-0.5, 0, -0.5);
+            burstParticleSystem.maxEmitBox = new Vector3(0.5, 0.5, 0.5);
+            
+            // Same colors as main system
+            burstParticleSystem.color1 = new Color4(this.waterColor.r, this.waterColor.g, this.waterColor.b, 1.0);
+            burstParticleSystem.color2 = new Color4(this.waterColor.r * 0.9, this.waterColor.g * 0.9, this.waterColor.b * 0.9, 0.9);
+            burstParticleSystem.colorDead = new Color4(0, 0, 0, 0.0);
+            
+            // Particle size
+            burstParticleSystem.minSize = 0.2;
+            burstParticleSystem.maxSize = 0.4;
+            
+            // Shorter lifetime for bursts
+            burstParticleSystem.minLifeTime = 2;
+            burstParticleSystem.maxLifeTime = 5;
+            
+            // High emission rate for burst
+            burstParticleSystem.emitRate = particlesPerBurst * 10;
+            
+            // Physics
+            burstParticleSystem.gravity = new Vector3(0, -this.gravity, 0);
+            burstParticleSystem.direction1 = new Vector3(-0.5, -1, -0.5);
+            burstParticleSystem.direction2 = new Vector3(0.5, -1.5, 0.5);
+            
+            burstParticleSystem.minAngularSpeed = 0;
+            burstParticleSystem.maxAngularSpeed = Math.PI;
+            
+            burstParticleSystem.minEmitPower = 1.5;
+            burstParticleSystem.maxEmitPower = 2.5;
+            burstParticleSystem.updateSpeed = 0.01;
+            
+            burstParticleSystem.blendMode = ParticleSystem.BLENDMODE_STANDARD;
+            
+            // Emit all particles quickly then stop
+            burstParticleSystem.targetStopDuration = 0.1;
+            
+            // Start the burst
+            burstParticleSystem.start();
+            
+            // Clean up after particles are done
             setTimeout(() => {
-                if (this.particleSystem) {
-                    this.particleSystem.emitRate = oldRate;
-                }
-            }, 200);
+                burstParticleSystem.dispose();
+                burstEmitter.dispose();
+            }, 6000); // Clean up after 6 seconds
         }
+        
+        // Also temporarily increase main system emission rate
+        const oldRate = this.particleSystem.emitRate;
+        this.particleSystem.emitRate = oldRate * 2;
+        setTimeout(() => {
+            if (this.particleSystem) {
+                this.particleSystem.emitRate = oldRate;
+            }
+        }, 1000);
     }
     
     public getParticleCount(): number {
