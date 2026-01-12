@@ -43,13 +43,13 @@ class WaterSimulator {
         this.scene.fogDensity = 0.02;
         this.scene.fogColor = new Color3(0.1, 0.1, 0.15);
         
-        // Setup camera
+        // Setup camera - position to see water clearly
         this.camera = new ArcRotateCamera(
             'camera',
-            -Math.PI / 2,
-            Math.PI / 3,
-            20,
-            Vector3.Zero(),
+            -Math.PI / 2.5, // Slightly adjusted angle
+            Math.PI / 3.5,  // Better viewing angle
+            25,              // Further back to see more
+            new Vector3(0, 2, 0), // Look at water level
             this.scene
         );
         this.camera.attachControls(this.canvas, true);
@@ -112,12 +112,13 @@ class WaterSimulator {
     }
     
     setupHelpers() {
-        // Grid
+        // Grid - position it below water level
         const grid = MeshBuilder.CreateGround('grid', { width: 30, height: 30, subdivisions: 30 }, this.scene);
         const gridMaterial = new StandardMaterial('gridMaterial', this.scene);
-        gridMaterial.diffuseColor = new Color3(0.2, 0.2, 0.2);
-        gridMaterial.emissiveColor = new Color3(0.1, 0.1, 0.1);
+        gridMaterial.diffuseColor = new Color3(0.3, 0.3, 0.3);
+        gridMaterial.emissiveColor = new Color3(0.05, 0.05, 0.05);
         grid.material = gridMaterial;
+        grid.position.y = -5; // Position grid below water
         grid.receiveShadows = true;
         grid.userData = { isHelper: true };
         
