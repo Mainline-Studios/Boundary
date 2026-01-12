@@ -18,7 +18,9 @@
   "author": "",
   "license": "Apache-2.0",
   "dependencies": {
-    "three": "^0.160.0"
+    "@babylonjs/core": "^6.32.0",
+    "@babylonjs/loaders": "^6.32.0",
+    "@babylonjs/materials": "^6.32.0"
   },
   "devDependencies": {
     "vite": "^5.0.0"

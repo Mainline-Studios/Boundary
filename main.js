@@ -1,4 +1,4 @@
-import * as THREE from 'three';
+import { Engine, Scene, ArcRotateCamera, HemisphericLight, Vector3, Color3, MeshBuilder, StandardMaterial, ShadowGenerator, DirectionalLight, PointLight } from '@babylonjs/core';
 import { WaterSimulation } from './water-simulation.js';
 import { ShapeManager } from './shape-manager.js';
 import { CameraController } from './camera-controller.js';
@@ -6,10 +6,22 @@ import { UIManager } from './ui-manager.js';
 
 class WaterSimulator {
     constructor() {
-        this.scene = new THREE.Scene();
-        this.camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
-        this.renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
-        this.clock = new THREE.Clock();
+        this.canvas = document.createElement('canvas');
+        this.canvas.id = 'renderCanvas';
+        this.canvas.style.width = '100%';
+        this.canvas.style.height = '100%';
+        document.getElementById('canvas-container').appendChild(this.canvas);
+        
+        this.engine = new Engine(this.canvas, true, {
+            preserveDrawingBuffer: true,
+            stencil: true,
+            antialias: true,
+            alpha: true,
+            premultipliedAlpha: false
+        });
+        
+        this.scene = null;
+        this.camera = null;
         
         this.waterSimulation = null;
         this.shapeManager = null;
@@ -19,122 +31,110 @@ class WaterSimulator {
         this.isPlaying = true;
         this.timeScale = 1.0;
         this.selectedObject = null;
-        this.raycaster = new THREE.Raycaster();
-        this.mouse = new THREE.Vector2();
         
         this.init();
     }
     
     init() {
-        // Setup renderer
-        this.renderer.setSize(window.innerWidth, window.innerHeight);
-        this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-        this.renderer.shadowMap.enabled = true;
-        this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
-        this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-        this.renderer.toneMappingExposure = 1.2;
-        document.getElementById('canvas-container').appendChild(this.renderer.domElement);
-        
-        // Setup scene
-        this.scene.background = new THREE.Color(0x1a1a2e);
-        this.scene.fog = new THREE.Fog(0x1a1a2e, 10, 50);
-        
-        // Setup lighting
-        const ambientLight = new THREE.AmbientLight(0xffffff, 0.4);
-        this.scene.add(ambientLight);
-        
-        const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
-        directionalLight.position.set(10, 20, 10);
-        directionalLight.castShadow = true;
-        directionalLight.shadow.mapSize.width = 2048;
-        directionalLight.shadow.mapSize.height = 2048;
-        directionalLight.shadow.camera.near = 0.5;
-        directionalLight.shadow.camera.far = 50;
-        directionalLight.shadow.camera.left = -20;
-        directionalLight.shadow.camera.right = 20;
-        directionalLight.shadow.camera.top = 20;
-        directionalLight.shadow.camera.bottom = -20;
-        this.scene.add(directionalLight);
-        
-        const pointLight = new THREE.PointLight(0x4a90e2, 0.5, 30);
-        pointLight.position.set(0, 15, 0);
-        this.scene.add(pointLight);
+        // Create scene
+        this.scene = new Scene(this.engine);
+        this.scene.clearColor = new Color3(0.1, 0.1, 0.15);
+        this.scene.fogMode = Scene.FOGMODE_EXP;
+        this.scene.fogDensity = 0.02;
+        this.scene.fogColor = new Color3(0.1, 0.1, 0.15);
         
         // Setup camera
-        this.camera.position.set(15, 15, 15);
-        this.camera.lookAt(0, 0, 0);
+        this.camera = new ArcRotateCamera(
+            'camera',
+            -Math.PI / 2,
+            Math.PI / 3,
+            20,
+            Vector3.Zero(),
+            this.scene
+        );
+        this.camera.attachControls(this.canvas, true);
+        this.camera.lowerRadiusLimit = 5;
+        this.camera.upperRadiusLimit = 50;
+        this.camera.wheelDeltaPercentage = 0.01;
+        
+        // Setup lighting
+        const hemisphericLight = new HemisphericLight('hemisphericLight', new Vector3(0, 1, 0), this.scene);
+        hemisphericLight.intensity = 0.6;
+        hemisphericLight.diffuse = new Color3(1, 1, 1);
+        
+        const directionalLight = new DirectionalLight('directionalLight', new Vector3(-1, -1, -1), this.scene);
+        directionalLight.position = new Vector3(10, 20, 10);
+        directionalLight.intensity = 0.8;
+        directionalLight.diffuse = new Color3(1, 1, 1);
+        
+        // Enable shadows
+        directionalLight.shadowMinZ = 1;
+        directionalLight.shadowMaxZ = 50;
+        const shadowGenerator = new ShadowGenerator(2048, directionalLight);
+        shadowGenerator.useBlurExponentialShadowMap = true;
+        shadowGenerator.blurKernel = 32;
+        
+        const pointLight = new PointLight('pointLight', new Vector3(0, 15, 0), this.scene);
+        pointLight.intensity = 0.5;
+        pointLight.diffuse = new Color3(0.3, 0.5, 0.9);
+        pointLight.range = 30;
         
         // Initialize managers
-        this.waterSimulation = new WaterSimulation(this.scene);
-        this.shapeManager = new ShapeManager(this.scene, this.waterSimulation);
+        this.waterSimulation = new WaterSimulation(this.scene, shadowGenerator);
+        this.shapeManager = new ShapeManager(this.scene, this.waterSimulation, shadowGenerator);
         this.cameraController = new CameraController(this.camera, this.scene);
         this.uiManager = new UIManager(this);
         
-        // Setup grid and axes
+        // Setup helpers
         this.setupHelpers();
         
-        // Event listeners
-        window.addEventListener('resize', () => this.onWindowResize());
-        this.renderer.domElement.addEventListener('click', (e) => this.onMouseClick(e));
-        this.renderer.domElement.addEventListener('mousemove', (e) => this.onMouseMove(e));
+        // Handle window resize
+        window.addEventListener('resize', () => {
+            this.engine.resize();
+        });
         
-        // Start animation loop
-        this.animate();
+        // Start render loop
+        this.engine.runRenderLoop(() => {
+            if (this.scene) {
+                const delta = this.engine.getDeltaTime() / 1000 * this.timeScale;
+                
+                if (this.isPlaying) {
+                    this.waterSimulation.update(delta);
+                    this.shapeManager.update(delta);
+                }
+                
+                this.cameraController.update(delta);
+                this.uiManager.update();
+                
+                this.scene.render();
+            }
+        });
     }
     
     setupHelpers() {
         // Grid
-        const gridHelper = new THREE.GridHelper(30, 30, 0x444444, 0x222222);
-        gridHelper.name = 'grid';
-        this.scene.add(gridHelper);
+        const grid = MeshBuilder.CreateGround('grid', { width: 30, height: 30, subdivisions: 30 }, this.scene);
+        const gridMaterial = new StandardMaterial('gridMaterial', this.scene);
+        gridMaterial.diffuseColor = new Color3(0.2, 0.2, 0.2);
+        gridMaterial.emissiveColor = new Color3(0.1, 0.1, 0.1);
+        grid.material = gridMaterial;
+        grid.receiveShadows = true;
+        grid.userData = { isHelper: true };
         
-        // Axes
-        const axesHelper = new THREE.AxesHelper(5);
-        axesHelper.name = 'axes';
-        this.scene.add(axesHelper);
-    }
-    
-    onWindowResize() {
-        this.camera.aspect = window.innerWidth / window.innerHeight;
-        this.camera.updateProjectionMatrix();
-        this.renderer.setSize(window.innerWidth, window.innerHeight);
-    }
-    
-    onMouseClick(event) {
-        this.mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
-        this.mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
-        
-        this.raycaster.setFromCamera(this.mouse, this.camera);
-        const intersects = this.raycaster.intersectObjects(this.shapeManager.getAllShapes(), false);
-        
-        if (intersects.length > 0) {
-            this.selectedObject = intersects[0].object;
-            this.shapeManager.selectShape(this.selectedObject);
-        } else {
-            this.selectedObject = null;
-            this.shapeManager.deselectAll();
-        }
-    }
-    
-    onMouseMove(event) {
-        this.mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
-        this.mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
-    }
-    
-    animate() {
-        requestAnimationFrame(() => this.animate());
-        
-        const delta = this.clock.getDelta() * this.timeScale;
-        
-        if (this.isPlaying) {
-            this.waterSimulation.update(delta);
-            this.shapeManager.update(delta);
-        }
-        
-        this.cameraController.update(delta);
-        this.uiManager.update();
-        
-        this.renderer.render(this.scene, this.camera);
+        // Axes helper
+        const axesSize = 5;
+        const axisX = MeshBuilder.CreateLines('axisX', {
+            points: [Vector3.Zero(), new Vector3(axesSize, 0, 0)],
+            colors: [new Color3(1, 0, 0), new Color3(1, 0, 0)]
+        }, this.scene);
+        const axisY = MeshBuilder.CreateLines('axisY', {
+            points: [Vector3.Zero(), new Vector3(0, axesSize, 0)],
+            colors: [new Color3(0, 1, 0), new Color3(0, 1, 0)]
+        }, this.scene);
+        const axisZ = MeshBuilder.CreateLines('axisZ', {
+            points: [Vector3.Zero(), new Vector3(0, 0, axesSize)],
+            colors: [new Color3(0, 0, 1), new Color3(0, 0, 1)]
+        }, this.scene);
     }
     
     togglePlayPause() {
@@ -151,5 +151,11 @@ class WaterSimulator {
     }
 }
 
-// Initialize simulator
-const simulator = new WaterSimulator();
+// Initialize simulator when DOM is ready
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', () => {
+        new WaterSimulator();
+    });
+} else {
+    new WaterSimulator();
+}

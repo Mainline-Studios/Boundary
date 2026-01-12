@@ -1,4 +1,4 @@
-import * as THREE from 'three';
+import { Color3 } from '@babylonjs/core';
 
 export class UIManager {
     constructor(simulator) {
@@ -43,7 +43,11 @@ export class UIManager {
         });
         
         waterColorPicker.addEventListener('input', (e) => {
-            const color = new THREE.Color(e.target.value);
+            const hex = e.target.value;
+            const r = parseInt(hex.substr(1, 2), 16) / 255;
+            const g = parseInt(hex.substr(3, 2), 16) / 255;
+            const b = parseInt(hex.substr(5, 2), 16) / 255;
+            const color = new Color3(r, g, b);
             this.simulator.waterSimulation.setWaterColor(color);
         });
         
@@ -117,23 +121,28 @@ export class UIManager {
             document.getElementById('quality-value').textContent = qualities[value];
             
             // Adjust render quality
+            const engine = this.simulator.engine;
             if (value === 0) {
-                this.simulator.renderer.setPixelRatio(1);
+                engine.setHardwareScalingLevel(2);
             } else if (value === 1) {
-                this.simulator.renderer.setPixelRatio(1.5);
+                engine.setHardwareScalingLevel(1.5);
             } else {
-                this.simulator.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+                engine.setHardwareScalingLevel(1);
             }
         });
         
         showGridCheckbox.addEventListener('change', (e) => {
-            const grid = this.simulator.scene.getObjectByName('grid');
-            if (grid) grid.visible = e.target.checked;
+            const grid = this.simulator.scene.getMeshByName('grid');
+            if (grid) grid.setEnabled(e.target.checked);
         });
         
         showAxesCheckbox.addEventListener('change', (e) => {
-            const axes = this.simulator.scene.getObjectByName('axes');
-            if (axes) axes.visible = e.target.checked;
+            const axisX = this.simulator.scene.getMeshByName('axisX');
+            const axisY = this.simulator.scene.getMeshByName('axisY');
+            const axisZ = this.simulator.scene.getMeshByName('axisZ');
+            if (axisX) axisX.setEnabled(e.target.checked);
+            if (axisY) axisY.setEnabled(e.target.checked);
+            if (axisZ) axisZ.setEnabled(e.target.checked);
         });
         
         // Simulation controls

@@ -1,9 +1,10 @@
 # Boundary - Realistic Water Simulator
 
-A beautiful, interactive 3D water simulation built with Three.js featuring realistic physics, customizable obstacles, and multiple camera views.
+A beautiful, interactive 3D water simulation built with **Babylon.js** (game-engine-like experience) featuring realistic physics, customizable obstacles, and multiple camera views. Works perfectly in **ALL browsers including Safari**!
 
-![Water Simulator](https://img.shields.io/badge/Three.js-0.160.0-000000?logo=three.js)
+![Water Simulator](https://img.shields.io/badge/Babylon.js-6.32.0-FF6D5C?logo=babylon.js)
 ![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)
+![Browser Support](https://img.shields.io/badge/Browser-All%20Browsers-green)
 
 ## Features
 
@@ -93,9 +94,10 @@ The built files will be in the `dist/` directory.
 ## Technical Details
 
 ### Technologies Used
-- **Three.js**: 3D graphics and WebGL rendering
+- **Babylon.js**: Powerful 3D game engine with excellent cross-browser support (including Safari)
 - **Vite**: Build tool and development server
-- **WebGL Shaders**: Custom water surface shaders for realistic rendering
+- **WebGL/WebGPU**: Advanced graphics rendering with fallback support
+- **Particle Systems**: Realistic water particle physics
 
 ### Architecture
 - **Modular design**: Separate classes for water simulation, shape management, camera control, and UI
@@ -109,10 +111,14 @@ The built files will be in the `dist/` directory.
 
 ## Browser Support
 
-- Chrome/Edge (recommended)
-- Firefox
-- Safari
-- Any modern browser with WebGL support
+✅ **Full support for ALL modern browsers:**
+- ✅ Chrome/Edge (recommended)
+- ✅ Firefox
+- ✅ **Safari** (fully supported!)
+- ✅ Opera
+- ✅ Any modern browser with WebGL/WebGPU support
+
+Babylon.js provides excellent cross-browser compatibility, including full Safari support with proper fallbacks.
 
 ## Contributing
 

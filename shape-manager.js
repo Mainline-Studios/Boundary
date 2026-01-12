@@ -1,9 +1,10 @@
-import * as THREE from 'three';
+import { MeshBuilder, StandardMaterial, Color3, Vector3, ActionManager, ExecuteCodeAction } from '@babylonjs/core';
 
 export class ShapeManager {
-    constructor(scene, waterSimulation) {
+    constructor(scene, waterSimulation, shadowGenerator) {
         this.scene = scene;
         this.waterSimulation = waterSimulation;
+        this.shadowGenerator = shadowGenerator;
         this.shapes = [];
         this.selectedShape = null;
         this.shapeType = 'box';
@@ -12,66 +13,70 @@ export class ShapeManager {
     
     createShape(type, position = null, size = null) {
         const shapeSize = size || this.size;
-        const shapePos = position || new THREE.Vector3(
+        const shapePos = position || new Vector3(
             (Math.random() - 0.5) * 10,
             2,
             (Math.random() - 0.5) * 10
         );
         
-        let geometry;
-        let material;
+        let mesh;
         
         switch (type) {
             case 'box':
-                geometry = new THREE.BoxGeometry(shapeSize, shapeSize, shapeSize);
+                mesh = MeshBuilder.CreateBox('shape', { size: shapeSize }, this.scene);
                 break;
             case 'sphere':
-                geometry = new THREE.SphereGeometry(shapeSize, 32, 32);
+                mesh = MeshBuilder.CreateSphere('shape', { diameter: shapeSize * 2, segments: 32 }, this.scene);
                 break;
             case 'cylinder':
-                geometry = new THREE.CylinderGeometry(shapeSize, shapeSize, shapeSize * 2, 32);
+                mesh = MeshBuilder.CreateCylinder('shape', { diameter: shapeSize * 2, height: shapeSize * 2, tessellation: 32 }, this.scene);
                 break;
             case 'cone':
-                geometry = new THREE.ConeGeometry(shapeSize, shapeSize * 2, 32);
+                mesh = MeshBuilder.CreateCylinder('shape', { diameterTop: 0, diameterBottom: shapeSize * 2, height: shapeSize * 2, tessellation: 32 }, this.scene);
                 break;
             case 'torus':
-                geometry = new THREE.TorusGeometry(shapeSize, shapeSize * 0.3, 16, 100);
+                mesh = MeshBuilder.CreateTorus('shape', { diameter: shapeSize * 2, thickness: shapeSize * 0.3, tessellation: 32 }, this.scene);
                 break;
             case 'plane':
-                geometry = new THREE.PlaneGeometry(shapeSize * 2, shapeSize * 2);
+                mesh = MeshBuilder.CreatePlane('shape', { size: shapeSize * 2 }, this.scene);
                 break;
             case 'pyramid':
-                geometry = new THREE.ConeGeometry(shapeSize, shapeSize * 1.5, 4);
+                mesh = MeshBuilder.CreatePolyhedron('shape', { type: 1, size: shapeSize }, this.scene);
                 break;
             default:
-                geometry = new THREE.BoxGeometry(shapeSize, shapeSize, shapeSize);
+                mesh = MeshBuilder.CreateBox('shape', { size: shapeSize }, this.scene);
         }
         
-        material = new THREE.MeshStandardMaterial({
-            color: 0x888888,
-            metalness: 0.3,
-            roughness: 0.7,
-            emissive: new THREE.Color(0x000000),
-            emissiveIntensity: 0
-        });
+        const material = new StandardMaterial('shapeMaterial', this.scene);
+        material.diffuseColor = new Color3(0.5, 0.5, 0.5);
+        material.specularColor = new Color3(0.3, 0.3, 0.3);
+        material.emissiveColor = new Color3(0, 0, 0);
+        material.metallicFactor = 0.3;
+        material.roughness = 0.7;
         
-        const mesh = new THREE.Mesh(geometry, material);
-        mesh.position.copy(shapePos);
-        mesh.castShadow = true;
-        mesh.receiveShadow = true;
-        mesh.userData.type = type;
-        mesh.userData.originalColor = material.color.clone();
+        mesh.material = material;
+        mesh.position.copyFrom(shapePos);
+        mesh.receiveShadows = true;
         
-        // Add wireframe for better visibility
-        const edges = new THREE.EdgesGeometry(geometry);
-        const line = new THREE.LineSegments(
-            edges,
-            new THREE.LineBasicMaterial({ color: 0xffffff, opacity: 0.3, transparent: true })
+        if (this.shadowGenerator) {
+            this.shadowGenerator.addShadowCaster(mesh);
+        }
+        
+        mesh.userData = {
+            type: type,
+            originalEmissive: new Color3(0, 0, 0),
+            isShape: true
+        };
+        
+        // Add click action
+        mesh.actionManager = new ActionManager(this.scene);
+        mesh.actionManager.registerAction(
+            new ExecuteCodeAction(ActionManager.OnPickTrigger, () => {
+                this.selectShape(mesh);
+            })
         );
-        mesh.add(line);
         
         this.shapes.push(mesh);
-        this.scene.add(mesh);
         
         return mesh;
     }
@@ -80,17 +85,15 @@ export class ShapeManager {
         this.deselectAll();
         this.selectedShape = shape;
         
-        if (shape) {
-            // Highlight selected shape
-            shape.material.emissive.setHex(0x4a90e2);
-            shape.material.emissiveIntensity = 0.3;
+        if (shape && shape.material) {
+            shape.material.emissiveColor = new Color3(0.29, 0.56, 0.89); // Blue highlight
+            shape.userData.originalEmissive = shape.material.emissiveColor.clone();
         }
     }
     
     deselectAll() {
-        if (this.selectedShape) {
-            this.selectedShape.material.emissive.copy(this.selectedShape.userData.originalColor);
-            this.selectedShape.material.emissiveIntensity = 0;
+        if (this.selectedShape && this.selectedShape.material) {
+            this.selectedShape.material.emissiveColor = new Color3(0, 0, 0);
         }
         this.selectedShape = null;
     }
@@ -99,11 +102,7 @@ export class ShapeManager {
         const index = this.shapes.indexOf(shape);
         if (index > -1) {
             this.shapes.splice(index, 1);
-            this.scene.remove(shape);
-            
-            // Clean up geometry and material
-            shape.geometry.dispose();
-            shape.material.dispose();
+            shape.dispose();
             
             if (this.selectedShape === shape) {
                 this.selectedShape = null;
@@ -136,76 +135,13 @@ export class ShapeManager {
     }
     
     update(delta) {
-        // Update shape interactions with water
-        for (const shape of this.shapes) {
-            // Animate selected shape slightly
-            if (shape === this.selectedShape) {
-                shape.rotation.y += delta * 0.5;
-            }
-            
-            // Check collisions with water particles
-            if (this.waterSimulation && this.waterSimulation.particleSystem) {
-                const positions = this.waterSimulation.particleSystem.geometry.attributes.position.array;
-                const velocities = this.waterSimulation.particleSystem.userData.velocities;
-                
-                for (let i = 0; i < positions.length; i += 3) {
-                    const particlePos = new THREE.Vector3(
-                        positions[i],
-                        positions[i + 1],
-                        positions[i + 2]
-                    );
-                    
-                    const collision = this.checkCollision(particlePos, shape);
-                    if (collision.collided) {
-                        // Reflect particle
-                        const normal = collision.normal;
-                        const velocity = new THREE.Vector3(
-                            velocities[i],
-                            velocities[i + 1],
-                            velocities[i + 2]
-                        );
-                        
-                        const reflected = velocity.clone().reflect(normal);
-                        velocities[i] = reflected.x * 0.8;
-                        velocities[i + 1] = reflected.y * 0.8;
-                        velocities[i + 2] = reflected.z * 0.8;
-                        
-                        // Push particle away
-                        const pushDistance = 0.1;
-                        positions[i] += normal.x * pushDistance;
-                        positions[i + 1] += normal.y * pushDistance;
-                        positions[i + 2] += normal.z * pushDistance;
-                    }
-                }
-            }
-        }
-    }
-    
-    checkCollision(point, shape) {
-        const shapePos = shape.position;
-        const shapeScale = shape.scale;
-        const dist = point.distanceTo(shapePos);
-        
-        // Get bounding box size
-        let size = 1.0;
-        if (shape.geometry.type === 'BoxGeometry') {
-            size = Math.max(shapeScale.x, shapeScale.y, shapeScale.z);
-        } else if (shape.geometry.type === 'SphereGeometry') {
-            size = shapeScale.x;
-        } else if (shape.geometry.type === 'CylinderGeometry' || shape.geometry.type === 'ConeGeometry') {
-            size = Math.max(shapeScale.x, shapeScale.y);
-        } else if (shape.geometry.type === 'TorusGeometry') {
-            size = shapeScale.x * 1.3;
-        } else if (shape.geometry.type === 'PlaneGeometry') {
-            size = Math.max(shapeScale.x, shapeScale.y) * 2;
+        // Animate selected shape
+        if (this.selectedShape) {
+            this.selectedShape.rotation.y += delta * 0.5;
         }
         
-        if (dist < size) {
-            const normal = point.clone().sub(shapePos).normalize();
-            return { collided: true, normal };
-        }
-        
-        return { collided: false };
+        // Update shape interactions with water particles
+        // This is handled by the particle system's collision detection
     }
     
     getShapeCount() {

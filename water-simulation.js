@@ -1,8 +1,9 @@
-import * as THREE from 'three';
+import { MeshBuilder, StandardMaterial, Color3, Color4, Vector3, ParticleSystem, Texture, Mesh } from '@babylonjs/core';
 
 export class WaterSimulation {
-    constructor(scene) {
+    constructor(scene, shadowGenerator) {
         this.scene = scene;
+        this.shadowGenerator = shadowGenerator;
         this.particles = [];
         this.particleSystem = null;
         this.waterMesh = null;
@@ -12,11 +13,12 @@ export class WaterSimulation {
         this.waveSpeed = 1.0;
         this.viscosity = 0.1;
         this.gravity = 9.8;
-        this.waterColor = new THREE.Color(0x4a90e2);
+        this.waterColor = new Color3(0.29, 0.56, 0.89); // #4a90e2
         
         // Grid for water surface
         this.gridSize = 64;
         this.gridSpacing = 0.5;
+        this.time = 0;
         
         this.init();
     }
@@ -27,208 +29,113 @@ export class WaterSimulation {
     }
     
     createWaterMesh() {
-        const geometry = new THREE.PlaneGeometry(
-            this.gridSize * this.gridSpacing,
-            this.gridSize * this.gridSpacing,
-            this.gridSize,
-            this.gridSize
-        );
+        // Create water plane with high subdivision for waves
+        this.waterMesh = MeshBuilder.CreateGround('waterMesh', {
+            width: this.gridSize * this.gridSpacing,
+            height: this.gridSize * this.gridSpacing,
+            subdivisions: this.gridSize
+        }, this.scene);
         
-        // Custom shader material for realistic water
-        const material = new THREE.ShaderMaterial({
-            uniforms: {
-                time: { value: 0 },
-                waterColor: { value: this.waterColor },
-                lightDirection: { value: new THREE.Vector3(0.5, 1, 0.5).normalize() },
-                cameraPosition: { value: new THREE.Vector3() },
-                opacity: { value: 0.8 }
-            },
-            vertexShader: `
-                uniform float time;
-                varying vec3 vPosition;
-                varying vec3 vNormal;
-                varying vec2 vUv;
-                
-                void main() {
-                    vUv = uv;
-                    vPosition = position;
-                    
-                    // Wave animation
-                    float wave1 = sin(position.x * 0.5 + time * 2.0) * 0.1;
-                    float wave2 = cos(position.z * 0.3 + time * 1.5) * 0.08;
-                    float wave3 = sin((position.x + position.z) * 0.4 + time * 2.5) * 0.05;
-                    
-                    vec3 pos = position;
-                    pos.y += wave1 + wave2 + wave3;
-                    
-                    // Calculate normal for lighting
-                    float dx = cos(position.x * 0.5 + time * 2.0) * 0.05;
-                    float dz = -sin(position.z * 0.3 + time * 1.5) * 0.04;
-                    vNormal = normalize(vec3(-dx, 1.0, -dz));
-                    
-                    gl_Position = projectionMatrix * modelViewMatrix * vec4(pos, 1.0);
-                }
-            `,
-            fragmentShader: `
-                uniform vec3 waterColor;
-                uniform vec3 lightDirection;
-                uniform vec3 cameraPosition;
-                uniform float opacity;
-                varying vec3 vPosition;
-                varying vec3 vNormal;
-                varying vec2 vUv;
-                
-                void main() {
-                    vec3 normal = normalize(vNormal);
-                    
-                    // Fresnel effect
-                    vec3 viewDirection = normalize(cameraPosition - vPosition);
-                    float fresnel = pow(1.0 - dot(viewDirection, normal), 2.0);
-                    
-                    // Lighting
-                    float lightIntensity = max(dot(normal, lightDirection), 0.3);
-                    
-                    // Water color with depth
-                    vec3 color = waterColor * lightIntensity;
-                    color = mix(color, vec3(0.1, 0.2, 0.4), fresnel * 0.5);
-                    
-                    // Foam effect at edges
-                    float foam = smoothstep(0.4, 0.6, vUv.x) * smoothstep(0.4, 0.6, vUv.y);
-                    foam *= smoothstep(0.4, 0.6, 1.0 - vUv.x) * smoothstep(0.4, 0.6, 1.0 - vUv.y);
-                    color = mix(color, vec3(1.0), foam * 0.3);
-                    
-                    gl_FragColor = vec4(color, opacity);
-                }
-            `,
-            transparent: true,
-            side: THREE.DoubleSide
-        });
+        // Create realistic water material
+        const waterMaterial = new StandardMaterial('waterMaterial', this.scene);
+        waterMaterial.diffuseColor = this.waterColor;
+        waterMaterial.specularColor = new Color3(0.8, 0.9, 1.0);
+        waterMaterial.emissiveColor = new Color3(0.1, 0.2, 0.3);
+        waterMaterial.alpha = 0.85;
+        waterMaterial.specularPower = 128;
+        waterMaterial.backFaceCulling = false;
         
-        this.waterMesh = new THREE.Mesh(geometry, material);
-        this.waterMesh.rotation.x = -Math.PI / 2;
+        this.waterMesh.material = waterMaterial;
         this.waterMesh.position.y = this.waterLevel * 10 - 5;
-        this.waterMesh.receiveShadow = true;
-        this.scene.add(this.waterMesh);
+        this.waterMesh.receiveShadows = true;
+        
+        // Store original vertices for wave animation
+        const positions = this.waterMesh.getVerticesData('position');
+        this.waterMesh.userData = { 
+            isWater: true, 
+            originalVertices: new Float32Array(positions) 
+        };
     }
     
     createParticleSystem() {
-        const particleCount = 2000;
-        const geometry = new THREE.BufferGeometry();
-        const positions = new Float32Array(particleCount * 3);
-        const velocities = new Float32Array(particleCount * 3);
-        const colors = new Float32Array(particleCount * 3);
+        // Create particle system
+        this.particleSystem = new ParticleSystem('waterParticles', 2000, this.scene);
         
-        for (let i = 0; i < particleCount; i++) {
-            const i3 = i * 3;
-            
-            // Random starting positions
-            positions[i3] = (Math.random() - 0.5) * 20;
-            positions[i3 + 1] = Math.random() * 5 + 5;
-            positions[i3 + 2] = (Math.random() - 0.5) * 20;
-            
-            // Initial velocities
-            velocities[i3] = (Math.random() - 0.5) * 0.5;
-            velocities[i3 + 1] = -Math.random() * 0.5;
-            velocities[i3 + 2] = (Math.random() - 0.5) * 0.5;
-            
-            // Colors based on water color
-            colors[i3] = this.waterColor.r;
-            colors[i3 + 1] = this.waterColor.g;
-            colors[i3 + 2] = this.waterColor.b;
-        }
+        // Create a simple white texture for particles
+        const particleTexture = new Texture('data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==', this.scene);
+        this.particleSystem.particleTexture = particleTexture;
         
-        geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-        geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+        // Create invisible emitter
+        const emitter = MeshBuilder.CreateBox('emitter', { size: 0.1 }, this.scene);
+        emitter.isVisible = false;
+        this.particleSystem.emitter = emitter;
+        this.particleSystem.minEmitBox = new Vector3(-10, 8, -10);
+        this.particleSystem.maxEmitBox = new Vector3(10, 12, 10);
         
-        const material = new THREE.PointsMaterial({
-            size: 0.1,
-            vertexColors: true,
-            transparent: true,
-            opacity: 0.8,
-            blending: THREE.AdditiveBlending
-        });
+        // Particle colors
+        this.particleSystem.color1 = new Color4(this.waterColor.r, this.waterColor.g, this.waterColor.b, 1.0);
+        this.particleSystem.color2 = new Color4(this.waterColor.r * 0.8, this.waterColor.g * 0.8, this.waterColor.b * 0.8, 0.8);
+        this.particleSystem.colorDead = new Color4(0, 0, 0, 0.0);
         
-        this.particleSystem = new THREE.Points(geometry, material);
-        this.particleSystem.userData.velocities = velocities;
-        this.scene.add(this.particleSystem);
+        // Particle size
+        this.particleSystem.minSize = 0.05;
+        this.particleSystem.maxSize = 0.15;
+        
+        // Particle lifetime
+        this.particleSystem.minLifeTime = 5;
+        this.particleSystem.maxLifeTime = 10;
+        
+        // Emission rate
+        this.particleSystem.emitRate = 200;
+        
+        // Physics
+        this.particleSystem.gravity = new Vector3(0, -this.gravity, 0);
+        this.particleSystem.direction1 = new Vector3(-0.5, -1, -0.5);
+        this.particleSystem.direction2 = new Vector3(0.5, -1.5, 0.5);
+        
+        // Angular velocity
+        this.particleSystem.minAngularSpeed = 0;
+        this.particleSystem.maxAngularSpeed = Math.PI;
+        
+        // Emit power
+        this.particleSystem.minEmitPower = 0.5;
+        this.particleSystem.maxEmitPower = 1.5;
+        this.particleSystem.updateSpeed = 0.02;
+        
+        // Blend mode
+        this.particleSystem.blendMode = ParticleSystem.BLENDMODE_STANDARD;
+        
+        // Start the particle system
+        this.particleSystem.start();
     }
     
     update(delta) {
-        // Update water mesh shader
-        if (this.waterMesh && this.waterMesh.material.uniforms) {
-            this.waterMesh.material.uniforms.time.value += delta * this.waveSpeed;
-        }
+        this.time += delta * this.waveSpeed;
         
-        // Update particles
-        if (this.particleSystem) {
-            const positions = this.particleSystem.geometry.attributes.position.array;
-            const velocities = this.particleSystem.userData.velocities;
+        // Animate water mesh vertices for waves
+        if (this.waterMesh && this.waterMesh.userData.originalVertices) {
+            const positions = this.waterMesh.getVerticesData('position');
+            const originalVertices = this.waterMesh.userData.originalVertices;
             
             for (let i = 0; i < positions.length; i += 3) {
-                // Apply gravity
-                velocities[i + 1] -= this.gravity * delta;
+                const x = originalVertices[i];
+                const z = originalVertices[i + 2];
                 
-                // Apply viscosity
-                velocities[i] *= (1 - this.viscosity * delta);
-                velocities[i + 1] *= (1 - this.viscosity * delta);
-                velocities[i + 2] *= (1 - this.viscosity * delta);
+                // Multiple wave functions for realistic water movement
+                const wave1 = Math.sin(x * 0.5 + this.time * 2.0) * 0.1;
+                const wave2 = Math.cos(z * 0.3 + this.time * 1.5) * 0.08;
+                const wave3 = Math.sin((x + z) * 0.4 + this.time * 2.5) * 0.05;
                 
-                // Update positions
-                positions[i] += velocities[i] * delta;
-                positions[i + 1] += velocities[i + 1] * delta;
-                positions[i + 2] += velocities[i + 2] * delta;
-                
-                // Boundary collision (ground)
-                const groundLevel = this.waterLevel * 10 - 5;
-                if (positions[i + 1] < groundLevel) {
-                    positions[i + 1] = groundLevel;
-                    velocities[i + 1] *= -0.3; // Bounce with damping
-                    velocities[i] *= 0.8;
-                    velocities[i + 2] *= 0.8;
-                }
-                
-                // Boundary collision (walls)
-                const boundary = 10;
-                if (Math.abs(positions[i]) > boundary) {
-                    positions[i] = Math.sign(positions[i]) * boundary;
-                    velocities[i] *= -0.5;
-                }
-                if (Math.abs(positions[i + 2]) > boundary) {
-                    positions[i + 2] = Math.sign(positions[i + 2]) * boundary;
-                    velocities[i + 2] *= -0.5;
-                }
-                
-                // Reset if too far
-                if (positions[i + 1] < -10) {
-                    positions[i] = (Math.random() - 0.5) * 20;
-                    positions[i + 1] = Math.random() * 5 + 10;
-                    positions[i + 2] = (Math.random() - 0.5) * 20;
-                    velocities[i] = (Math.random() - 0.5) * 0.5;
-                    velocities[i + 1] = -Math.random() * 0.5;
-                    velocities[i + 2] = (Math.random() - 0.5) * 0.5;
-                }
+                positions[i + 1] = originalVertices[i + 1] + wave1 + wave2 + wave3;
             }
             
-            this.particleSystem.geometry.attributes.position.needsUpdate = true;
+            this.waterMesh.updateVerticesData('position', positions);
         }
-    }
-    
-    checkCollisionWithShapes(particlePos, shapes) {
-        for (const shape of shapes) {
-            const shapePos = shape.position;
-            const shapeScale = shape.scale;
-            
-            // Simple bounding box collision
-            if (shape.geometry.type === 'BoxGeometry') {
-                const size = 1 * Math.max(shapeScale.x, shapeScale.y, shapeScale.z);
-                const dist = particlePos.distanceTo(shapePos);
-                if (dist < size) {
-                    const normal = particlePos.clone().sub(shapePos).normalize();
-                    return { collided: true, normal };
-                }
-            }
+        
+        // Update particle system gravity
+        if (this.particleSystem) {
+            this.particleSystem.gravity.y = -this.gravity;
         }
-        return { collided: false };
     }
     
     setWaterLevel(level) {
@@ -252,62 +159,33 @@ export class WaterSimulation {
     
     setWaterColor(color) {
         this.waterColor = color;
-        if (this.waterMesh && this.waterMesh.material.uniforms) {
-            this.waterMesh.material.uniforms.waterColor.value = color;
+        if (this.waterMesh && this.waterMesh.material) {
+            this.waterMesh.material.diffuseColor = color;
         }
         if (this.particleSystem) {
-            const colors = this.particleSystem.geometry.attributes.color.array;
-            for (let i = 0; i < colors.length; i += 3) {
-                colors[i] = color.r;
-                colors[i + 1] = color.g;
-                colors[i + 2] = color.b;
-            }
-            this.particleSystem.geometry.attributes.color.needsUpdate = true;
+            this.particleSystem.color1 = new Color4(color.r, color.g, color.b, 1.0);
+            this.particleSystem.color2 = new Color4(color.r * 0.8, color.g * 0.8, color.b * 0.8, 0.8);
         }
     }
     
     reset() {
         if (this.particleSystem) {
-            const positions = this.particleSystem.geometry.attributes.position.array;
-            const velocities = this.particleSystem.userData.velocities;
-            
-            for (let i = 0; i < positions.length; i += 3) {
-                positions[i] = (Math.random() - 0.5) * 20;
-                positions[i + 1] = Math.random() * 5 + 5;
-                positions[i + 2] = (Math.random() - 0.5) * 20;
-                
-                velocities[i] = (Math.random() - 0.5) * 0.5;
-                velocities[i + 1] = -Math.random() * 0.5;
-                velocities[i + 2] = (Math.random() - 0.5) * 0.5;
-            }
-            
-            this.particleSystem.geometry.attributes.position.needsUpdate = true;
+            this.particleSystem.reset();
         }
     }
     
     addWater() {
         if (this.particleSystem) {
-            const positions = this.particleSystem.geometry.attributes.position.array;
-            const velocities = this.particleSystem.userData.velocities;
-            
-            // Add water at random positions above
-            for (let i = 0; i < positions.length; i += 3) {
-                if (Math.random() < 0.1) {
-                    positions[i] = (Math.random() - 0.5) * 10;
-                    positions[i + 1] = Math.random() * 3 + 8;
-                    positions[i + 2] = (Math.random() - 0.5) * 10;
-                    
-                    velocities[i] = (Math.random() - 0.5) * 0.3;
-                    velocities[i + 1] = -Math.random() * 0.2;
-                    velocities[i + 2] = (Math.random() - 0.5) * 0.3;
-                }
-            }
-            
-            this.particleSystem.geometry.attributes.position.needsUpdate = true;
+            // Temporarily increase emit rate to add more water
+            const oldRate = this.particleSystem.emitRate;
+            this.particleSystem.emitRate = 500;
+            setTimeout(() => {
+                this.particleSystem.emitRate = oldRate;
+            }, 100);
         }
     }
     
     getParticleCount() {
-        return this.particleSystem ? this.particleSystem.geometry.attributes.position.array.length / 3 : 0;
+        return this.particleSystem ? this.particleSystem.getActiveCount() : 0;
     }
 }

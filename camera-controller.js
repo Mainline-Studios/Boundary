@@ -1,11 +1,11 @@
-import * as THREE from 'three';
+import { Vector3 } from '@babylonjs/core';
 
 export class CameraController {
     constructor(camera, scene) {
         this.camera = camera;
         this.scene = scene;
         this.viewMode = 'free';
-        this.target = new THREE.Vector3(0, 0, 0);
+        this.target = Vector3.Zero();
         this.radius = 20;
         this.theta = Math.PI / 4;
         this.phi = Math.PI / 3;
@@ -18,24 +18,32 @@ export class CameraController {
         
         switch (mode) {
             case 'top':
-                this.camera.position.set(0, 30, 0);
-                this.camera.lookAt(0, 0, 0);
+                this.camera.setTarget(Vector3.Zero());
+                this.camera.alpha = 0;
+                this.camera.beta = Math.PI / 2;
+                this.camera.radius = 30;
                 break;
             case 'front':
-                this.camera.position.set(0, 10, 25);
-                this.camera.lookAt(0, 0, 0);
+                this.camera.setTarget(Vector3.Zero());
+                this.camera.alpha = 0;
+                this.camera.beta = Math.PI / 3;
+                this.camera.radius = 25;
                 break;
             case 'side':
-                this.camera.position.set(25, 10, 0);
-                this.camera.lookAt(0, 0, 0);
+                this.camera.setTarget(Vector3.Zero());
+                this.camera.alpha = Math.PI / 2;
+                this.camera.beta = Math.PI / 3;
+                this.camera.radius = 25;
                 break;
             case 'free':
-                this.camera.position.set(15, 15, 15);
-                this.camera.lookAt(0, 0, 0);
+                this.camera.setTarget(Vector3.Zero());
+                this.camera.alpha = -Math.PI / 2;
+                this.camera.beta = Math.PI / 3;
+                this.camera.radius = 20;
                 break;
             case 'follow':
-                // Will follow water center
-                this.followTarget = new THREE.Vector3(0, 5, 0);
+                this.followTarget = new Vector3(0, 5, 0);
+                this.theta = Math.PI / 4;
                 break;
         }
     }
@@ -48,12 +56,10 @@ export class CameraController {
             const z = Math.cos(this.theta) * this.radius;
             const y = 10 + Math.sin(this.theta * 0.5) * 5;
             
-            const targetPos = new THREE.Vector3(x, y, z);
-            this.camera.position.lerp(targetPos, this.lerpSpeed);
-            this.camera.lookAt(this.followTarget);
-        } else if (this.viewMode === 'free') {
-            // Allow manual control (can be extended with orbit controls)
-            // For now, just maintain position
+            this.camera.setTarget(this.followTarget);
+            this.camera.alpha = this.theta;
+            this.camera.beta = Math.PI / 3 + Math.sin(this.theta * 0.5) * 0.2;
+            this.camera.radius = this.radius;
         }
     }
     
