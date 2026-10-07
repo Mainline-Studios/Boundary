@@ -128,6 +128,9 @@ Contributions are welcome! Please feel free to submit a Pull Request.
 
 This project is licensed under the Apache License 2.0 - see the [LICENSE](LICENSE) file for details.
 
+## Source
+Yeah, it's open source. Duh.
+
 ## Acknowledgments
 
 - Built with [Three.js](https://threejs.org/)
